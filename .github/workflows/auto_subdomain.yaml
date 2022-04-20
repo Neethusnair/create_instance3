@@ -48,8 +48,8 @@ jobs:
        JFROG_PASSWORD: ${{ secrets.JFROG_PASSWORD }}
       run: |
        docker login sreyo.jfrog.io -u $JFROG_USER -p $JFROG_PASSWORD
-       kubectl delete secret jfrog-secret --ignore-not-found 
-       kubectl create secret generic jfrog-secret --from-file=.dockerconfigjson=/home/runner/.docker/config.json  --type=kubernetes.io/dockerconfigjson   
+       kubectl delete secret jfrog-secret -n donor-driver --ignore-not-found 
+       kubectl create secret generic jfrog-secret -n donor-driver --from-file=.dockerconfigjson=/home/runner/.docker/config.json  --type=kubernetes.io/dockerconfigjson   
          
      # Deploy gateway and virtual services
     - name: Deploy gateway
