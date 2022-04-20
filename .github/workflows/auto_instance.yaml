@@ -25,6 +25,7 @@ env:
   domainName: '${{ github.event.client_payload.deployment_file.domainName }}'
   serviceName: '${{ github.event.client_payload.deployment_file.serviceName }}'
   JOB_ID: '${{ github.event.client_payload.deployment_file.callbackId }}'
+  nameSpace: '${{ github.event.client_payload.deployment_file.namespace }}'
   FRONTEND_NAME: '${{ github.event.client_payload.deployment_file.frontend_domain }}'
   BACKEND_NAME: '${{ github.event.client_payload.deployment_file.backend_domain }}' 
   EKS_CLUSTER: dev
@@ -66,129 +67,6 @@ jobs:
         #branch: ${{ github.ref }}
         branch: main
     
-  # Job2:
-  #   needs: Job1
-  #   name: Deploy application to AWS
-  #   runs-on: ubuntu-latest
-
-  #   steps:
-  #   - name: Checkout
-  #     uses: actions/checkout@v2
-
-  #   # AWS Credentials
-  #   - uses: aws-actions/configure-aws-credentials@v1
-  #     with:
-  #      aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-  #      aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-  #      aws-region: ${{ env.EKS_REGION }}
-
-  #  # Get the EKS credentials so we can deploy to the cluster
-  #   - run: |-
-  #      aws eks --region $EKS_REGION update-kubeconfig --name $EKS_CLUSTER
-         
-  #  # Login to Jfrog
-  #   - name: Jfrog login
-  #     env:
-  #      JFROG_USER: ${{ secrets.JFROG_USER }}
-  #      JFROG_PASSWORD: ${{ secrets.JFROG_PASSWORD }}
-  #     run: |
-  #      docker login sreyo.jfrog.io -u $JFROG_USER -p $JFROG_PASSWORD
-  #      kubectl delete secret jfrog-secret --ignore-not-found 
-  #      kubectl create secret generic jfrog-secret --from-file=.dockerconfigjson=/home/runner/.docker/config.json  --type=kubernetes.io/dockerconfigjson   
-         
-  #    # Deploy gateway and virtual services
-  #   - name: Deploy gateway
-  #     run: |-
-  #      kubectl apply -f gateway.yaml
-  #      kubectl get svc -l=istio=ingressgateway -n istio-system         
-             
-  #   # Set up kustomize
-  #   - name: Set up Kustomize
-  #     run: |-
-  #       curl -sfLo kustomize https://github.com/kubernetes-sigs/kustomize/releases/download/v3.1.0/kustomize_3.1.0_linux_amd64
-  #       chmod u+x ./kustomize
-   
-  #  # Deploy application 
-  #   - name: Deploy application
-  #     run: |-
-  #       #./kustomize build . | kubectl apply -f -
-  #       #./kustomize build overlays 
-  #       ./kustomize build overlays | kubectl apply -f -
-  #       # kubectl wait --for=condition=ready pod -l app=mongodb
-  #       # kubectl rollout status deployment mongodb-deployment
-  #       # kubectl get services -o wide
-        
-       
-  # job2:
-  #   needs: Job1
-  #   name: Set-up subdomain
-  #   runs-on: ubuntu-latest
-
-  #   # Steps represent a sequence of tasks that will be executed as part of the job
-  #   steps:
-  #    - name: Checkout
-  #      uses: actions/checkout@v2
-            
-  #   # AWS Credentials
-  #    - uses: aws-actions/configure-aws-credentials@v1
-  #      with:
-  #       aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-  #       aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-  #       aws-region: ${{ env.EKS_REGION }}
-
-  #   # Get the EKS credentials so we can deploy to the cluster
-  #    - run: |-
-  #       aws eks --region $EKS_REGION update-kubeconfig --name $EKS_CLUSTER
-
-  #   # Add domain for frontend   
-  #    - name: Update CloudFlare DNS with Cluster IP for frontend 
-  #      run: |-
-  #        # purge any existing records for our AWS subdomain
-  #        existing_records=( $(curl -X GET "https://api.cloudflare.com/client/v4/zones/${{ secrets.CLOUDFLARE_DNS_ZONE }}/dns_records?type=CNAME&name=${FRONTEND_NAME}.sreyo.in" \
-  #           -H "X-Auth-Email: ${{ secrets.CLOUDFLARE_EMAIL }}" \
-  #           -H "X-Auth-Key: ${{ secrets.CLOUDFLARE_API_KEY }}" \
-  #           -H "Content-Type: application/json"   | jq -r '.result[].id') )
-  #        for record in ${existing_records[@]}; do
-  #          curl -X DELETE "https://api.cloudflare.com/client/v4/zones/${{ secrets.CLOUDFLARE_DNS_ZONE }}/dns_records/${record}" \
-  #             -H "X-Auth-Email: ${{ secrets.CLOUDFLARE_EMAIL }}" \
-  #             -H "X-Auth-Key: ${{ secrets.CLOUDFLARE_API_KEY }}" \
-  #             -H "Content-Type: application/json"
-  #        done
-      
-  #        # Create new record with latest cluster external IP.
-  #        #CLUSTER_IP=34.136.63.109
-  #        CLUSTER_HOSTNAME=$(kubectl -n istio-system get service istio-ingressgateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-  #        curl -X POST "https://api.cloudflare.com/client/v4/zones/${{ secrets.CLOUDFLARE_DNS_ZONE }}/dns_records" \
-  #          -H "X-Auth-Email: ${{ secrets.CLOUDFLARE_EMAIL }}" \
-  #          -H "X-Auth-Key: ${{ secrets.CLOUDFLARE_API_KEY }}" \
-  #          -H "Content-Type: application/json" \
-  #          --data '{"type":"CNAME","name":"'${FRONTEND_NAME}'","content":"'${CLUSTER_HOSTNAME}'","ttl":120,"priority":10,"proxied":true}'       
-
-  #   # Add domain for backend   
-  #    - name: Update CloudFlare DNS with Cluster IP for backend
-  #      run: |-
-  #        # purge any existing records for our AWS subdomain
-  #        existing_records=( $(curl -X GET "https://api.cloudflare.com/client/v4/zones/${{ secrets.CLOUDFLARE_DNS_ZONE }}/dns_records?type=CNAME&name=${BACKEND_NAME}.sreyo.in" \
-  #           -H "X-Auth-Email: ${{ secrets.CLOUDFLARE_EMAIL }}" \
-  #           -H "X-Auth-Key: ${{ secrets.CLOUDFLARE_API_KEY }}" \
-  #           -H "Content-Type: application/json"   | jq -r '.result[].id') )
-  #        for record in ${existing_records[@]}; do
-  #          curl -X DELETE "https://api.cloudflare.com/client/v4/zones/${{ secrets.CLOUDFLARE_DNS_ZONE }}/dns_records/${record}" \
-  #             -H "X-Auth-Email: ${{ secrets.CLOUDFLARE_EMAIL }}" \
-  #             -H "X-Auth-Key: ${{ secrets.CLOUDFLARE_API_KEY }}" \
-  #             -H "Content-Type: application/json"
-  #        done
-      
-  #        # Create new record with latest cluster external IP.
-  #        #CLUSTER_IP=34.136.63.109
-  #        CLUSTER_HOSTNAME=$(kubectl -n istio-system get service istio-ingressgateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-  #        curl -X POST "https://api.cloudflare.com/client/v4/zones/${{ secrets.CLOUDFLARE_DNS_ZONE }}/dns_records" \
-  #          -H "X-Auth-Email: ${{ secrets.CLOUDFLARE_EMAIL }}" \
-  #          -H "X-Auth-Key: ${{ secrets.CLOUDFLARE_API_KEY }}" \
-  #          -H "Content-Type: application/json" \
-  #          --data '{"type":"CNAME","name":"'${BACKEND_NAME}'","content":"'${CLUSTER_HOSTNAME}'","ttl":120,"priority":10,"proxied":true}'       
-
-
   job2:
     needs: Job1
     name: Send call to subdomain workflow
@@ -204,17 +82,6 @@ jobs:
        with:
           token: ${{ secrets.PERSONAL_TOKEN }}
           event-type: subdomain
-          client-payload: '{"frontdomain_name": "${{ env.FRONTEND_NAME }}", "domain_name": "${{ env.BACKEND_NAME }}", "job_Id": "${{ env.JOB_ID }}"}'  
+          client-payload: '{"frontdomain_name": "${{ env.FRONTEND_NAME }}", "domain_name": "${{ env.BACKEND_NAME }}", "job_Id": "${{ env.JOB_ID }}", "namespace": "${{ env.nameSpace }}"}'  
           #client-payload: '{"ref": "${{ github.ref }}", "sha": "${{ github.sha }}", "test": "test message"}' 
-
-    # # Send call back  
-    #  - name: Send callback to application
-    #    run: |-  
-    #     curl -X POST \
-    #       -H "Authorization: ${{ secrets.PERSONAL_TOKEN }}" \
-    #       --data '{"event_type": "subdomain", "client_payload": { "domain_name": "nss"}}' \
-    #       https://api.github.com/repos/Neethusnair/create_instance2/dispatches 
-    #     #  curl -X POST "https://api.managedorg.io/callback" \
-    #     #     -H "Content-Type: application/json" \
-    #     #     --data '{"type":"onboarding","status":"success","priority":10}'
 

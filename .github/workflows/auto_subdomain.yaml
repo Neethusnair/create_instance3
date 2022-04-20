@@ -11,6 +11,7 @@ env:
   FRONTEND_NAME: ${{ github.event.client_payload.frontdomain_name }} 
   BACKEND_NAME: ${{ github.event.client_payload.domain_name }} 
   JOB_ID: ${{ github.event.client_payload.job_Id}}
+  nameSpace: ${{ github.event.client_payload.namespace}}
   # BACKEND_NAME: ${{ github.event.client_payload.domain_name.backend_domain }}  
   EKS_CLUSTER: dev
   EKS_REGION: us-east-2
@@ -67,7 +68,7 @@ jobs:
       run: |-
         #./kustomize build . | kubectl apply -f -
         #./kustomize build overlays 
-        ./kustomize build overlays | kubectl apply -f -
+        ./kustomize build overlays | kubectl apply -f - -n donor-driver
         # kubectl wait --for=condition=ready pod -l app=mongodb
         # kubectl rollout status deployment mongodb-deployment
         # kubectl get services -o wide
