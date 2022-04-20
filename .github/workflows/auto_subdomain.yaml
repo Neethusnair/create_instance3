@@ -54,7 +54,7 @@ jobs:
      # Deploy gateway and virtual services
     - name: Deploy gateway
       run: |-
-       kubectl apply -f gateway.yaml
+       kubectl apply -f gateway.yaml -n donor-driver
        kubectl get svc -l=istio=ingressgateway -n istio-system         
              
     # Set up kustomize
