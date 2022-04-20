@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-deployment
+  labels:
+    app: redcross-customer
+spec:
+  selector:
+    matchLabels:
+      app: redcross-customer
+  template:
+    metadata:
+      labels: # labels to select/identify the deployment
+        app: redcross-customer
+    spec:     # pod spec
+      containers: 
+      - name: frontend
+        ports:
+        - containerPort: 10
+          $patch: delete
+        - containerPort: 1337  
+        env:
+        - name: PORT_VALUE
+          value: "1337"  
+        - name: DATABASE_NAME
+          value: "redcross"    
+        
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+  labels:
+    app: redcross-customer
+spec:
+  selector:
+    app: redcross-customer
+  ports:
+    - port: 8080
+      $patch: delete
+      targetPort: 10
+      $patch: delete
+    - port: 1337
+      targetPort: 1337  
+
+
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: frontend-vs
+spec:
+  hosts:
+  #   - abc.sreyo.in
+  #     $patch: delete
+    # - def.sreyo.in  
+    - redcross-api.sreyo.in
+  http:
+    - route:
+        - destination:
+            # host: frontend-service.default.svc.cluster.local
+            # $patch: delete
+            # host: test-frontend-service.default.svc.cluster.local
+            host: redcross-frontend-service.default.svc.cluster.local
+            port:
+              # number: 8081  
+              # $patch: delete 
+              number: 1337

@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-deployment
+  labels:
+    app: frontend
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+      version: v1
+  template:
+    metadata:
+      labels: # labels to select/identify the deployment
+        app: frontend
+        version: v1 
+    spec:     # pod spec
+      imagePullSecrets:
+      - name: jfrog-secret
+      containers: 
+      - name: frontend
+        image: sreyo.jfrog.io/customerstrapi-docker-prod-local/customerstrapi-docker # image we pushed
+        #imagePullPolicy: Never
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 10
+        env:
+        - name: PORT_VALUE
+          value: "10"
+        - name: DATABASE_NAME
+          value: "dbname"         
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+  labels:
+    app: frontend
+spec:
+  selector:
+    app: frontend 
+  ports:
+    - port: 8080
+      targetPort: 10

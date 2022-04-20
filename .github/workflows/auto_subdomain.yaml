@@ -1,0 +1,205 @@
+name: Create subdomian in CF from user's input 
+
+# Triggers the workflow on api call
+on:
+#   workflow_dispatch
+  repository_dispatch:
+    types: [subdomain]
+    
+env:
+  # FRONTEND_NAME: ${{ github.event.client_payload.domain_name.frontend_domain }} 
+  FRONTEND_NAME: ${{ github.event.client_payload.frontdomain_name }} 
+  BACKEND_NAME: ${{ github.event.client_payload.domain_name }} 
+  JOB_ID: ${{ github.event.client_payload.job_Id}}
+  # BACKEND_NAME: ${{ github.event.client_payload.domain_name.backend_domain }}  
+  EKS_CLUSTER: dev
+  EKS_REGION: us-east-2
+
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  Job1:
+    name: Deploy application to AWS
+    runs-on: ubuntu-latest
+
+    outputs:
+      output1: ${{ steps.step1.outputs.test }}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+ 
+    # AWS Credentials
+    - uses: aws-actions/configure-aws-credentials@v1
+      with:
+       aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+       aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+       aws-region: ${{ env.EKS_REGION }}
+
+   # Get the EKS credentials so we can deploy to the cluster
+    - run: |-
+       aws eks --region $EKS_REGION update-kubeconfig --name $EKS_CLUSTER
+         
+   # Login to Jfrog
+    - name: Jfrog login
+      env:
+       JFROG_USER: ${{ secrets.JFROG_USER }}
+       JFROG_PASSWORD: ${{ secrets.JFROG_PASSWORD }}
+      run: |
+       docker login sreyo.jfrog.io -u $JFROG_USER -p $JFROG_PASSWORD
+       kubectl delete secret jfrog-secret --ignore-not-found 
+       kubectl create secret generic jfrog-secret --from-file=.dockerconfigjson=/home/runner/.docker/config.json  --type=kubernetes.io/dockerconfigjson   
+         
+     # Deploy gateway and virtual services
+    - name: Deploy gateway
+      run: |-
+       kubectl apply -f gateway.yaml
+       kubectl get svc -l=istio=ingressgateway -n istio-system         
+             
+    # Set up kustomize
+    - name: Set up Kustomize
+      run: |-
+        curl -sfLo kustomize https://github.com/kubernetes-sigs/kustomize/releases/download/v3.1.0/kustomize_3.1.0_linux_amd64
+        chmod u+x ./kustomize
+   
+   # Deploy application 
+    - name: Deploy application
+      run: |-
+        #./kustomize build . | kubectl apply -f -
+        #./kustomize build overlays 
+        ./kustomize build overlays | kubectl apply -f -
+        # kubectl wait --for=condition=ready pod -l app=mongodb
+        # kubectl rollout status deployment mongodb-deployment
+        # kubectl get services -o wide
+
+   # set job status to output
+    - name: get job status
+      id: step1
+      if: always()
+      run: echo "::set-output name=test::${{ job.status}}"    
+
+  Job2:
+    needs: Job1
+    name: Set-up subdomain
+    runs-on: ubuntu-latest
+
+    outputs:
+      output1: ${{ steps.step1.outputs.test }}
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+     - name: Checkout
+       uses: actions/checkout@v2
+            
+    # AWS Credentials
+     - uses: aws-actions/configure-aws-credentials@v1
+       with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.EKS_REGION }}
+
+    # Get the EKS credentials so we can deploy to the cluster
+     - run: |-
+        aws eks --region $EKS_REGION update-kubeconfig --name $EKS_CLUSTER
+
+    # Add domain for frontend   
+     - name: Update CloudFlare DNS with Cluster IP for frontend 
+       run: |-
+         # purge any existing records for our AWS subdomain
+         existing_records=( $(curl -X GET "https://api.cloudflare.com/client/v4/zones/${{ secrets.CLOUDFLARE_DNS_ZONE }}/dns_records?type=CNAME&name=${FRONTEND_NAME}.sreyo.in" \
+            -H "X-Auth-Email: ${{ secrets.CLOUDFLARE_EMAIL }}" \
+            -H "X-Auth-Key: ${{ secrets.CLOUDFLARE_API_KEY }}" \
+            -H "Content-Type: application/json"   | jq -r '.result[].id') )
+         for record in ${existing_records[@]}; do
+           curl -X DELETE "https://api.cloudflare.com/client/v4/zones/${{ secrets.CLOUDFLARE_DNS_ZONE }}/dns_records/${record}" \
+              -H "X-Auth-Email: ${{ secrets.CLOUDFLARE_EMAIL }}" \
+              -H "X-Auth-Key: ${{ secrets.CLOUDFLARE_API_KEY }}" \
+              -H "Content-Type: application/json"
+         done
+      
+         # Create new record with latest cluster external IP.
+         #CLUSTER_IP=34.136.63.109
+         #CLUSTER_HOSTNAME= "hello.hi.com"
+         CLUSTER_HOSTNAME=$(kubectl -n istio-system get service istio-ingressgateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+         curl -X POST "https://api.cloudflare.com/client/v4/zones/${{ secrets.CLOUDFLARE_DNS_ZONE }}/dns_records" \
+           -H "X-Auth-Email: ${{ secrets.CLOUDFLARE_EMAIL }}" \
+           -H "X-Auth-Key: ${{ secrets.CLOUDFLARE_API_KEY }}" \
+           -H "Content-Type: application/json" \
+           --data '{"type":"CNAME","name":"'${FRONTEND_NAME}'","content":"'${CLUSTER_HOSTNAME}'","ttl":120,"priority":10,"proxied":true}'       
+
+    # Add domain for backend   
+     - name: Update CloudFlare DNS with Cluster IP for backend
+       run: |-
+         # purge any existing records for our AWS subdomain
+         existing_records=( $(curl -X GET "https://api.cloudflare.com/client/v4/zones/${{ secrets.CLOUDFLARE_DNS_ZONE }}/dns_records?type=CNAME&name=${BACKEND_NAME}.sreyo.in" \
+            -H "X-Auth-Email: ${{ secrets.CLOUDFLARE_EMAIL }}" \
+            -H "X-Auth-Key: ${{ secrets.CLOUDFLARE_API_KEY }}" \
+            -H "Content-Type: application/json"   | jq -r '.result[].id') )
+         for record in ${existing_records[@]}; do
+           curl -X DELETE "https://api.cloudflare.com/client/v4/zones/${{ secrets.CLOUDFLARE_DNS_ZONE }}/dns_records/${record}" \
+              -H "X-Auth-Email: ${{ secrets.CLOUDFLARE_EMAIL }}" \
+              -H "X-Auth-Key: ${{ secrets.CLOUDFLARE_API_KEY }}" \
+              -H "Content-Type: application/json"
+         done
+      
+         # Create new record with latest cluster external IP.
+         #CLUSTER_IP=34.136.63.109
+         CLUSTER_HOSTNAME=$(kubectl -n istio-system get service istio-ingressgateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+         curl -X POST "https://api.cloudflare.com/client/v4/zones/${{ secrets.CLOUDFLARE_DNS_ZONE }}/dns_records" \
+           -H "X-Auth-Email: ${{ secrets.CLOUDFLARE_EMAIL }}" \
+           -H "X-Auth-Key: ${{ secrets.CLOUDFLARE_API_KEY }}" \
+           -H "Content-Type: application/json" \
+           --data '{"type":"CNAME","name":"'${BACKEND_NAME}'","content":"'${CLUSTER_HOSTNAME}'","ttl":120,"priority":10,"proxied":true}'       
+   
+    # set job status to output
+     - name: get job status
+       id: step1
+       if: always()
+       run: echo "::set-output name=test::${{ job.status}}"
+
+  Job3:
+    needs: [Job1, Job2]
+    name: Send Callback
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+     - name: Checkout
+       uses: actions/checkout@v2
+
+     - name: get job status
+       run: |- 
+        echo "Job1_status=${{needs.Job1.outputs.output1}}" >> $GITHUB_ENV
+        echo "Job2_status=${{needs.Job2.outputs.output1}}" >> $GITHUB_ENV
+        echo "status=success" >> $GITHUB_ENV
+        #echo "::set-env name=Job1_status::${{needs.Job1.outputs.output1}}" # decripted
+        # echo "::set-env name=Job2_status::${{needs.Job2.outputs.output1}}" # decripted
+        # echo "::set-env name=status::success" # decripted
+ 
+    # Change status on failure.The step that creates or updates the environment variable does not have access to the new value,
+    # but all subsequent steps in a job will have access
+     - name: change status to failure
+       if: env.Job1_status == 'failure' || env.Job2_status == 'failure'
+       #if: fromJSON( ( ${{ env.Job1_status }} == failure || {{ env.Job2_status }}  == failure ) )
+       #if: ${{ env.Job1_status }} == failure || {{ env.Job2_status }}  == failure 
+       #if: failure() && ${{ env.Job1_status }} == failure || {{ env.Job2_status }}  == failure
+       #if: ${{ env.Job1_status }} == failure
+       run: |- 
+         echo "status=failure" >> $GITHUB_ENV
+         echo "${{ env.Job1_status }}"
+         echo "${{ env.Job2_status }}"
+         echo "${{ env.status }}"
+
+    #  - name: get new status
+    #    run: |- 
+    #      echo "${{ env.status }}"
+
+    # Send call back  
+     - name: Send callback to application
+       run: |-  
+         #echo "${{ env.status }}"
+         echo "'${BACKEND_NAME}'"
+         echo "'${status}'"
+         curl -X POST "https://dev-customer1-api.managedorg.io/callback/updateCallback" \
+            -H "Content-Type: application/json" \
+            --data '{"callbackId":"${JOB_ID}","status":"${status}"}'           
