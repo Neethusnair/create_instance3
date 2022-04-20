@@ -61,7 +61,7 @@ spec:
             # host: frontend-service.default.svc.cluster.local
             # $patch: delete
             # host: test-frontend-service.default.svc.cluster.local
-            host: redcross-frontend-service.default.svc.cluster.local
+            host: redcross-frontend-service.donor-driver.svc.cluster.local
             port:
               # number: 8081  
               # $patch: delete 
